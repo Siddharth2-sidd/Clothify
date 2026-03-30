@@ -1,4 +1,5 @@
 using Clothify_Backend.Services;
+using Serilog;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -29,6 +30,14 @@ builder.Services.AddAuthentication("Bearer")
         };
     });
 
+// Logging
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .WriteTo.File("logs/log.txt", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
 builder.Services.AddAuthorization();
 
 // Add services to the container.
@@ -46,6 +55,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+app.UseMiddleware<ExceptionMiddleware>();
 app.UseStaticFiles();
 app.UseHttpsRedirection();
 

@@ -3,6 +3,7 @@ using Clothify_Backend.DTO.Product;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 namespace Clothify_Backend.Controllers
 {
     [ApiController]
@@ -11,11 +12,14 @@ namespace Clothify_Backend.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IWebHostEnvironment _env;
+        private readonly IMemoryCache _cache;
 
-        public ProductController(AppDbContext context, IWebHostEnvironment env)
+        public ProductController(AppDbContext context, IWebHostEnvironment env, IMemoryCache cache)
         {
             _context = context;
             _env = env;
+            _cache = cache;
+
         }
 
         // CREATE PRODUCT (Admin/Seller)
@@ -55,34 +59,50 @@ namespace Clothify_Backend.Controllers
 
         // (Pagination + Filtering)
         [HttpGet]
-        public async Task<IActionResult> GetAll(
-            int page = 1,
-            int pageSize = 10,
-            string search = "",
-            int? categoryId = null)
+    public async Task<IActionResult> GetAll(
+    int page = 1,
+    int pageSize = 10,
+    string search = "",
+    int? categoryId = null)
         {
-            var query = _context.Products.Include(p => p.Category).AsQueryable();
+            // ✅ Unique cache key based on filters
+            var cacheKey = $"products_{page}_{pageSize}_{search}_{categoryId}";
 
-            if (!string.IsNullOrEmpty(search))
-                query = query.Where(p => p.Name.Contains(search));
-
-            if (categoryId.HasValue)
-                query = query.Where(p => p.CategoryId == categoryId);
-
-            var total = await query.CountAsync();
-
-            var products = await query
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            return Ok(new
+            if (!_cache.TryGetValue(cacheKey, out object cachedResult))
             {
-                Total = total,
-                Page = page,
-                PageSize = pageSize,
-                Data = products
-            });
+                var query = _context.Products
+                    .Include(p => p.Category)
+                    .AsQueryable();
+
+                if (!string.IsNullOrEmpty(search))
+                    query = query.Where(p => p.Name.Contains(search));
+
+                if (categoryId.HasValue)
+                    query = query.Where(p => p.CategoryId == categoryId);
+
+                var total = await query.CountAsync();
+
+                var products = await query
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                var result = new
+                {
+                    Total = total,
+                    Page = page,
+                    PageSize = pageSize,
+                    Data = products
+                };
+
+                // ✅ Store in cache
+                _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+
+                return Ok(result);
+            }
+
+            // ✅ Return cached data
+            return Ok(cachedResult);
         }
 
         //GET BY ID
